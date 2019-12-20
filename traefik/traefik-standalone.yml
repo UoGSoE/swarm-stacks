@@ -1,0 +1,56 @@
+version: "3.3"
+
+# this assumes you have created an overlay network called 'proxy' already, by eg
+#   docker network create --driver=overlay proxy
+# it stores it's letsencrypt files on the local disk - probaby under /var/lib/docker/volumes
+# ^ which should be changed to running a HA consul setup
+
+services:
+  traefik:
+    image: traefik:v2.0
+    restart: always
+    container_name: traefik
+    ports:
+      - "80:80"
+      - "8080:8080" # traefik dashboard
+      - "443:443"
+    command:
+      - --api.insecure=false # set to 'false' on production
+      - --api.dashboard=true # see https://docs.traefik.io/v2.0/operations/dashboard/#secure-mode for how to secure the dashboard
+      - --api.debug=false # enable additional endpoints for debugging and profiling
+      - --log.level=INFO # debug while we get it working, for more levels/info see https://docs.traefik.io/observability/logs/
+      - --providers.docker=true
+      - --providers.docker.swarmMode=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=proxy
+      - --entrypoints.web.address=:80
+      - --entrypoints.web-secured.address=:443
+      - --certificatesresolvers.mytlschallenge.acme.httpChallenge.entrypoint=web
+      - --certificatesresolvers.mytlschallenge.acme.email=${LETS_ENCRYPT_EMAIL}
+      - --certificatesresolvers.mytlschallenge.acme.storage=/letsencrypt/acme.json
+    volumes:
+      - letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - proxy
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.api.rule=Host(`${TRAEFIK_DASHBOARD_HOST}`)"
+        - "traefik.http.routers.api.service=api@internal" # Let the dashboard access the traefik api
+        - "traefik.http.routers.api.middlewares=auth"
+        # echo $(htpasswd -nb user password) | sed -e s/\\$/\\$\\$/g
+        - "traefik.http.middlewares.auth.basicauth.users=${ADMIN_CREDENTIALS}"
+        # Dummy service for Swarm port detection. The port can be any valid integer value.
+        - "traefik.http.services.dummy-svc.loadbalancer.server.port=9999"
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.dmz == true
+
+networks:
+  proxy:
+    external: true
+
+volumes:
+  letsencrypt:

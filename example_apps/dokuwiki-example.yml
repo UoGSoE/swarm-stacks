@@ -1,0 +1,35 @@
+version: '3'
+
+# This stores it's data locally in 'throwaway' volumes.  For real usage you'd need an external
+# minio or nfs for storage
+# To deploy this you would do something like :
+#  export DOKUWIKI_NAME=biomed-wiki
+#  export TRAEFIK_HOSTNAME=biomed-wiki.eng.gla.ac.uk
+#  docker stack deploy -c dokuwiki-example.yml ${DOKUWIKI_NAME}
+#
+
+services:
+  dokuwiki:
+    image: 'mprasil/dokuwiki'
+    expose:
+      - "80"
+    volumes:
+      - 'dokuwiki_data:/dokuwiki'
+    networks:
+      - "proxy"
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.${DOKUWIKI_NAME}.rule=Host(`${TRAEFIK_HOSTNAME`)"
+        - "traefik.http.routers.${DOKUWIKI_NAME}.entrypoints=web"
+        - "traefik.http.services.${DOKUWIKI_NAME}.loadbalancer.server.port=80" # it seems you always need to give traefik a port so it 'notices' the service
+        - "traefik.http.routers.${DOKUWIKI_NAME}-secured.rule=Host(`${TRAEFIK_HOSTNAME`)"
+        - "traefik.http.routers.${DOKUWIKI_NAME}-secured.entrypoints=web-secured"
+        - "traefik.http.routers.${DOKUWIKI_NAME}-secured.tls.certresolver=mytlschallenge"
+volumes:
+  dokuwiki_data:
+    driver: local
+
+networks:
+  proxy:
+    external: true
